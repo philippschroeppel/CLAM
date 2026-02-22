@@ -48,15 +48,21 @@ def process_h5_patches(h5_dir, wsi_dir, db_path="./lancedb", table_name="wsi_pat
         ('image', pa.binary())
     ])
     
-    # Create table (will overwrite if exists)
-    try:
-        table = db.create_table(table_name, schema=schema, mode='overwrite')
-        print(f"Created table: {table_name}")
-    except Exception as e:
-        print(f"Table might already exist, trying to open: {e}")
+    # Create table or open existing one to resume progress
+    existing_wsi_ids = set()
+    if table_name in db.table_names():
         table = db.open_table(table_name)
-    
+        existing_wsi_ids = set(table.to_lance().to_table(columns=["wsi_id"]).column("wsi_id").to_pylist())
+        print(f"Resuming: table '{table_name}' already exists with {len(existing_wsi_ids)} processed slides")
+    else:
+        table = db.create_table(table_name, schema=schema)
+        print(f"Created table: {table_name}")
+
     # Process H5 files and insert data
+    skipped = [f for f in h5_files if os.path.splitext(f)[0] in existing_wsi_ids]
+    h5_files = [f for f in h5_files if os.path.splitext(f)[0] not in existing_wsi_ids]
+    if skipped:
+        print(f"Skipping {len(skipped)} already-processed slides")
     for h5_filename in tqdm(h5_files, desc="Processing H5 files"):
         h5_path = os.path.join(h5_dir, h5_filename)
         
