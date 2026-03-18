@@ -28,6 +28,10 @@ def convert_to_pyramid_tiff(input_dir, output_dir, extensions):
         basename = os.path.splitext(os.path.basename(image_path))[0]
         pyramid_tiffile = os.path.join(output_dir, basename + '_pyramid.tif')
 
+        if os.path.exists(pyramid_tiffile):
+            print(f'Skipping {image_path} (already converted)')
+            continue
+
         try:
             image = vips.Image.new_from_file(image_path, access='sequential')
             image.tiffsave(
@@ -39,13 +43,8 @@ def convert_to_pyramid_tiff(input_dir, output_dir, extensions):
                 pyramid=True,
                 bigtiff=True,
             )
-
-            if output_dir != input_dir:
-                os.remove(image_path)
-                print(f'{image_path} converted to {pyramid_tiffile} and deleted.')
-            else:
-                os.remove(image_path)
-                print(f'{image_path} converted to {pyramid_tiffile} and deleted.')
+            os.remove(image_path)
+            print(f'{image_path} converted to {pyramid_tiffile} and deleted.')
 
         except Exception as e:
             print(f'ERROR: Failed to convert {image_path}: {e}')
