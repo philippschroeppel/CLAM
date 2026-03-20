@@ -1,14 +1,16 @@
 import argparse
-import pyvips as vips
 import glob
 import os
 
-# Formats that pyvips/libvips can typically read (with appropriate plugins installed)
-# CZI requires libvips built with openslide >= 4.0 or bioformats support
+import numpy as np
+import openslide
+import tifffile
+
+# Formats supported by OpenSlide 4.0 (CZI support added in 4.0)
 DEFAULT_EXTENSIONS = ['.tif', '.tiff', '.czi', '.svs', '.ndpi', '.scn', '.mrxs', '.vms', '.vmu']
 
 
-def convert_to_pyramid_tiff(input_dir, output_dir, extensions):
+def convert_to_tiff(input_dir, output_dir, extensions):
     os.makedirs(output_dir, exist_ok=True)
 
     image_paths = []
@@ -16,8 +18,7 @@ def convert_to_pyramid_tiff(input_dir, output_dir, extensions):
         image_paths.extend(glob.glob(os.path.join(input_dir, f'*{ext}')))
         image_paths.extend(glob.glob(os.path.join(input_dir, f'*{ext.upper()}')))
 
-    # Exclude files already converted
-    image_paths = [p for p in image_paths if 'pyramid' not in os.path.basename(p)]
+    image_paths = [p for p in image_paths if not p.endswith('.tif') or 'converted' not in os.path.basename(p)]
     image_paths = sorted(set(image_paths))
 
     if not image_paths:
@@ -26,39 +27,41 @@ def convert_to_pyramid_tiff(input_dir, output_dir, extensions):
 
     for image_path in image_paths:
         basename = os.path.splitext(os.path.basename(image_path))[0]
-        pyramid_tiffile = os.path.join(output_dir, basename + '_pyramid.tif')
+        output_path = os.path.join(output_dir, basename + '.tif')
 
-        if os.path.exists(pyramid_tiffile):
+        if os.path.exists(output_path):
             print(f'Skipping {image_path} (already converted)')
             continue
 
         try:
-            image = vips.Image.new_from_file(image_path, access='sequential')
-            image.tiffsave(
-                pyramid_tiffile,
-                compression='lzw',
-                tile=True,
-                tile_width=256,
-                tile_height=256,
-                pyramid=True,
-                bigtiff=True,
-            )
+            print(f'Converting {image_path}')
+            slide = openslide.OpenSlide(image_path)
+            w, h = slide.dimensions
+            print(f'  dimensions: {w}x{h}')
+
+            img = np.array(slide.read_region((0, 0), 0, (w, h)).convert('RGB'))
+            slide.close()
+
+            tifffile.imwrite(output_path, img, compression='lzw')
+
             os.remove(image_path)
-            print(f'{image_path} converted to {pyramid_tiffile} and deleted.')
+            print(f'  -> {output_path} (source deleted)')
 
         except Exception as e:
             print(f'ERROR: Failed to convert {image_path}: {e}')
+            if os.path.exists(output_path):
+                os.remove(output_path)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
-        description='Convert whole-slide images to pyramidal TIFF format.',
+        description='Convert whole-slide images to TIFF using OpenSlide.',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=f'Supported extensions by default: {DEFAULT_EXTENSIONS}\n'
-               'CZI support requires libvips with openslide >= 4.0 or bioformats.',
+               'Requires openslide-bin >= 4.0 for CZI support.',
     )
     parser.add_argument('--dir', required=True, help='Directory containing images to convert')
-    parser.add_argument('--output_dir', help='Output directory for pyramidal TIFFs (defaults to --dir)')
+    parser.add_argument('--output_dir', help='Output directory (defaults to --dir)')
     parser.add_argument(
         '--extensions',
         nargs='+',
@@ -67,4 +70,4 @@ if __name__ == '__main__':
     )
     args = parser.parse_args()
 
-    convert_to_pyramid_tiff(args.dir, args.output_dir or args.dir, args.extensions)
+    convert_to_tiff(args.dir, args.output_dir or args.dir, args.extensions)

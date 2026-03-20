@@ -1,17 +1,14 @@
-FROM fedora:42
+FROM python:3.12-slim-bookworm
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 WORKDIR /app
 
-RUN dnf upgrade -y && \
-    dnf install -y \
-        gcc ffmpeg libSM libXext \
-        openslide-devel \
-        vips-devel && \
-    dnf clean all
-
-RUN uv python install 3.12
+# Runtime dependencies for opencv and openslide-python
+# OpenSlide 4.0 (with CZI support) is provided by the openslide-bin pip package
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ffmpeg libsm6 libxext6 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY . /app
 
