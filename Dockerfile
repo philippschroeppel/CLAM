@@ -16,4 +16,6 @@ RUN uv python install 3.12
 
 COPY . /app
 
-RUN uv pip install --system --no-cache .
+RUN uv venv --python 3.12 /app/.venv
+ENV PATH="/app/.venv/bin:$PATH"
+RUN uv pip install --no-cache .
