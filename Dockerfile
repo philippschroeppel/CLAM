@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         openslide-tools \
     && rm -rf /var/lib/apt/lists/*
 
+ENV UV_PYTHON_INSTALL_DIR=/opt/python
 RUN uv python install 3.12
 
 COPY . /opt/app
