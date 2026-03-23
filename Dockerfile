@@ -2,7 +2,7 @@ FROM ubuntu:24.04
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-WORKDIR /app
+WORKDIR /opt/app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         software-properties-common \
@@ -14,8 +14,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN uv python install 3.12
 
-COPY . /app
+COPY . /opt/app
 
-RUN uv venv --python 3.12 /app/.venv
-ENV PATH="/app/.venv/bin:$PATH"
+RUN uv venv --python 3.12 /opt/app/.venv
+ENV VIRTUAL_ENV=/opt/app/.venv
+ENV PATH="/opt/app/.venv/bin:$PATH"
 RUN uv pip install --no-cache .
