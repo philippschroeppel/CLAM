@@ -1,0 +1,14 @@
+FROM eclipse-temurin:21-jre-noble
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        wget \
+        unzip \
+    && wget -q https://downloads.openmicroscopy.org/bio-formats/8.5.0/artifacts/bftools.zip \
+    && unzip -q bftools.zip -d /opt \
+    && rm bftools.zip \
+    && chmod +x /opt/bftools/* \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV PATH="/opt/bftools:$PATH"
+
+ENTRYPOINT ["/opt/bftools/bfconvert"]

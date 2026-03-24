@@ -27,15 +27,17 @@ jobs:
           username: ${{ secrets.GITLAB_REGISTRY_TOKEN_USERNAME }}
           password: ${{ secrets.GITLAB_REGISTRY_TOKEN_PASSWORD }}
 
-      - name: Extract metadata (tags, labels) for Docker
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ vars.GITLAB_REGISTRY }}/${{ env.IMAGE_NAME }}
-
-      - name: Build and push Docker image
+      - name: Build and push clam image
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           tags: ${{ vars.GITLAB_REGISTRY }}/${{ env.IMAGE_NAME }}:clam
+
+      - name: Build and push bftools image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.bftools
+          push: true
+          tags: ${{ vars.GITLAB_REGISTRY }}/${{ env.IMAGE_NAME }}:bftools
