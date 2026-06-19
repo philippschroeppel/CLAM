@@ -7,7 +7,6 @@ import multiprocessing as mp
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
-import openslide
 from PIL import Image
 import pdb
 import h5py
@@ -16,20 +15,24 @@ from wsi_core.wsi_utils import savePatchIter_bag_hdf5, initialize_hdf5_bag, coor
 import itertools
 from wsi_core.util_classes import isInContourV1, isInContourV2, isInContourV3_Easy, isInContourV3_Hard, Contour_Checking_fn
 from utils.file_utils import load_pkl, save_pkl
+from wsi_core.output_adapters import Hdf5CoordinateOutput
+from wsi_core.slide_io import open_slide
 
 Image.MAX_IMAGE_PIXELS = 933120000
 
 class WholeSlideImage(object):
-    def __init__(self, path):
+    def __init__(self, path, wsi=None, slide_backend='auto'):
 
         """
         Args:
             path (str): fullpath to WSI file
+            wsi: optional OpenSlide-like reader with read_region, level_dimensions,
+                level_downsamples, and get_best_level_for_downsample.
         """
 
 #         self.name = ".".join(path.split("/")[-1].split('.')[:-1])
         self.name = os.path.splitext(os.path.basename(path))[0]
-        self.wsi = openslide.open_slide(path)
+        self.wsi = wsi if wsi is not None else open_slide(path, backend=slide_backend)
         self.level_downsamples = self._assertLevelDownsamples()
         self.level_dim = self.wsi.level_dimensions
     
@@ -368,14 +371,15 @@ class WholeSlideImage(object):
         
         return level_downsamples
 
-    def process_contours(self, save_path, patch_level=0, patch_size=256, step_size=256, **kwargs):
-        save_path_hdf5 = os.path.join(save_path, str(self.name) + '.h5')
+    def process_contours(self, save_path, patch_level=0, patch_size=256, step_size=256, output_adapter=None, **kwargs):
+        output_adapter = output_adapter or Hdf5CoordinateOutput(save_path)
         print("Creating patches for: ", self.name, "...",)
         elapsed = time.time()
         n_contours = len(self.contours_tissue)
         print("Total number of contours to process: ", n_contours)
-        fp_chunk_size = math.ceil(n_contours * 0.05)
+        fp_chunk_size = max(1, math.ceil(n_contours * 0.05))
         init = True
+        output_path = output_adapter.output_path(str(self.name))
         for idx, cont in enumerate(self.contours_tissue):
             if (idx + 1) % fp_chunk_size == fp_chunk_size:
                 print('Processing contour {}/{}'.format(idx, n_contours))
@@ -383,12 +387,12 @@ class WholeSlideImage(object):
             asset_dict, attr_dict = self.process_contour(cont, self.holes_tissue[idx], patch_level, save_path, patch_size, step_size, **kwargs)
             if len(asset_dict) > 0:
                 if init:
-                    save_hdf5(save_path_hdf5, asset_dict, attr_dict, mode='w')
+                    output_path = output_adapter.write(str(self.name), asset_dict, attr_dict, mode='w')
                     init = False
                 else:
-                    save_hdf5(save_path_hdf5, asset_dict, mode='a')
+                    output_path = output_adapter.write(str(self.name), asset_dict, attr_dict, mode='a')
 
-        return self.hdf5_file
+        return output_path
 
 
     def process_contour(self, cont, contour_holes, patch_level, save_path, patch_size = 256, step_size = 256,
@@ -735,7 +739,6 @@ class WholeSlideImage(object):
         tissue_mask = tissue_mask.astype(bool)
         print('detected {}/{} of region as tissue'.format(tissue_mask.sum(), tissue_mask.size))
         return tissue_mask
-
 
 
 

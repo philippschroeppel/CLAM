@@ -2,6 +2,7 @@
 from wsi_core.WholeSlideImage import WholeSlideImage
 from wsi_core.wsi_utils import StitchCoords
 from wsi_core.batch_process_utils import initialize_df
+from wsi_core.output_adapters import build_patch_output
 # other imports
 import os
 import numpy as np
@@ -56,7 +57,9 @@ def seg_and_patch(source, save_dir, patch_save_dir, mask_save_dir, stitch_save_d
 				  use_default_params = False, 
 				  seg = False, save_mask = True, 
 				  stitch= False, 
-				  patch = False, auto_skip=True, process_list = None):
+				  patch = False, auto_skip=True, process_list = None,
+				  slide_backend='auto', output_adapter='hdf5',
+				  lance_db_path=None, lance_table_name='wsi_patch_coords'):
 	
 
 
@@ -86,6 +89,10 @@ def seg_and_patch(source, save_dir, patch_save_dir, mask_save_dir, stitch_save_d
 	seg_times = 0.
 	patch_times = 0.
 	stitch_times = 0.
+	patch_output = build_patch_output(output_adapter, patch_save_dir, lance_db_path, lance_table_name)
+	if stitch and output_adapter != 'hdf5':
+		print('stitching is only supported for hdf5 coordinate output; disabling stitch')
+		stitch = False
 
 	for i in tqdm(range(total)):
 		df.to_csv(os.path.join(save_dir, 'process_list_autogen.csv'), index=False)
@@ -97,14 +104,14 @@ def seg_and_patch(source, save_dir, patch_save_dir, mask_save_dir, stitch_save_d
 		df.loc[idx, 'process'] = 0
 		slide_id, _ = os.path.splitext(slide)
 
-		if auto_skip and os.path.isfile(os.path.join(patch_save_dir, slide_id + '.h5')):
+		if auto_skip and patch_output.exists(slide_id):
 			print('{} already exist in destination location, skipped'.format(slide_id))
 			df.loc[idx, 'status'] = 'already_exist'
 			continue
 
 		# Inialize WSI
 		full_path = os.path.join(source, slide)
-		WSI_object = WholeSlideImage(full_path)
+		WSI_object = WholeSlideImage(full_path, slide_backend=slide_backend)
 
 		if use_default_params:
 			current_vis_params = vis_params.copy()
@@ -196,7 +203,7 @@ def seg_and_patch(source, save_dir, patch_save_dir, mask_save_dir, stitch_save_d
 		patch_time_elapsed = -1 # Default time
 		if patch:
 			current_patch_params.update({'patch_level': patch_level, 'patch_size': patch_size, 'step_size': step_size, 
-										 'save_path': patch_save_dir})
+										 'save_path': patch_save_dir, 'output_adapter': patch_output})
 			file_path, patch_time_elapsed = patching(WSI_object = WSI_object,  **current_patch_params,)
 		
 		stitch_time_elapsed = -1
@@ -246,6 +253,14 @@ parser.add_argument('--patch_level', type=int, default=0,
 					help='downsample level at which to patch')
 parser.add_argument('--process_list',  type = str, default=None,
 					help='name of list of images to process with parameters (.csv)')
+parser.add_argument('--slide_backend', choices=['auto', 'openslide', 'czi'], default='auto',
+					help='slide reader backend; auto uses czi for .czi files and openslide otherwise')
+parser.add_argument('--output_adapter', choices=['hdf5', 'lance'], default='hdf5',
+					help='coordinate output adapter')
+parser.add_argument('--lance_db_path', type=str, default=None,
+					help='LanceDB path when --output_adapter lance is used (defaults to patch_save_dir)')
+parser.add_argument('--lance_table_name', type=str, default='wsi_patch_coords',
+					help='LanceDB table name when --output_adapter lance is used')
 
 if __name__ == '__main__':
 	args = parser.parse_args()
@@ -308,4 +323,8 @@ if __name__ == '__main__':
 											seg = args.seg,  use_default_params=False, save_mask = True, 
 											stitch= args.stitch,
 											patch_level=args.patch_level, patch = args.patch,
-											process_list = process_list, auto_skip=args.no_auto_skip)
+											process_list = process_list, auto_skip=args.no_auto_skip,
+											slide_backend=args.slide_backend,
+											output_adapter=args.output_adapter,
+											lance_db_path=args.lance_db_path,
+											lance_table_name=args.lance_table_name)

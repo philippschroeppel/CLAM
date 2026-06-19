@@ -16,13 +16,14 @@ dependencies = [
     "tqdm>=4.66.5",
     "tensorboardx>=2.6.2.2",
     "matplotlib>=3.9.2",
+    "aicspylibczi>=3.2.0",
     "czifile>=2019.7.2",
     "pydantic-settings>=2.5.2",
     "timm>=1.0.11",
     "boto3>=1.35.0",
     "lancedb>=0.26.1",
     "tifffile>=2024.1.1",
-    "openslide-python>=1.4.3",
+    "openslide-python==1.4.6",
 ]
 
 [build-system]

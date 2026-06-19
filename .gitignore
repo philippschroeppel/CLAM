@@ -3,3 +3,6 @@ __pycache__/
 notebooks
 data
 artifacts
+*.czi
+*.tiff
+scratch

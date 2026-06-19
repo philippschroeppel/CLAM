@@ -47,24 +47,38 @@ class Whole_Slide_Bag(Dataset):
 
 class Whole_Slide_Bag_FP(Dataset):
 	def __init__(self,
-		file_path,
 		wsi,
-		img_transforms=None):
+		file_path=None,
+		img_transforms=None,
+		coords=None,
+		coord_attrs=None):
 		"""
 		Args:
 			file_path (string): Path to the .h5 file containing patched data.
+			coords (numpy array): Optional preloaded patch coordinates.
+			coord_attrs (dict): Metadata for preloaded coordinates.
 			img_transforms (callable, optional): Optional transform to be applied on a sample
 		"""
 		self.wsi = wsi
 		self.roi_transforms = img_transforms
 		self.file_path = file_path
 
-		with h5py.File(self.file_path, "r") as f:
-			dset = f['coords']
-			self.patch_level = dset.attrs['patch_level']
-			self.patch_size = dset.attrs['patch_size']
-			self.coords = dset[:]  # Pre-load all coordinates
-			self.length = len(self.coords)
+		if coords is None:
+			with h5py.File(self.file_path, "r") as f:
+				dset = f['coords']
+				self.patch_level = dset.attrs['patch_level']
+				self.patch_size = dset.attrs['patch_size']
+				self.coords = dset[:]  # Pre-load all coordinates
+				self.coord_attrs = dict(dset.attrs.items())
+		else:
+			self.coords = np.asarray(coords, dtype=np.int32)
+			self.coord_attrs = coord_attrs or {}
+			self.patch_level = self.coord_attrs.get('patch_level', 0)
+			self.patch_size = self.coord_attrs.get('patch_size', 256)
+
+		self.patch_level = int(self.patch_level)
+		self.patch_size = int(self.patch_size)
+		self.length = len(self.coords)
 			
 		self.summary()
 			
@@ -72,12 +86,13 @@ class Whole_Slide_Bag_FP(Dataset):
 		return self.length
 
 	def summary(self):
-		with h5py.File(self.file_path, "r") as hdf5_file:
-			dset = hdf5_file['coords']
-			for name, value in dset.attrs.items():
-				print(name, value)
+		for name, value in self.coord_attrs.items():
+			print(name, value)
 
 		print('\nfeature extraction settings')
+		print('total coordinates: ', self.length)
+		print('patch level: ', self.patch_level)
+		print('patch size: ', self.patch_size)
 		print('transformations: ', self.roi_transforms)
 
 	def __getitem__(self, idx):
@@ -85,7 +100,7 @@ class Whole_Slide_Bag_FP(Dataset):
 		img = self.wsi.read_region(coord, self.patch_level, (self.patch_size, self.patch_size)).convert('RGB')
 
 		img = self.roi_transforms(img)
-		return {'img': img, 'coord': coord}
+		return {'img': img, 'coord': coord, 'patch_idx': idx}
 
 class Dataset_All_Bags(Dataset):
 
@@ -97,7 +112,5 @@ class Dataset_All_Bags(Dataset):
 
 	def __getitem__(self, idx):
 		return self.df['slide_id'][idx]
-
-
 
 

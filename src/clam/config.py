@@ -17,7 +17,7 @@ class PatchExtractionSettings(BaseSettings):
 
 
 class FeatureExtractionSettings(BaseSettings):
-    data_h5_dir: str
+    data_h5_dir: str | None = None
     data_slide_dir: str
     csv_path: str
     feat_dir: str
@@ -26,6 +26,13 @@ class FeatureExtractionSettings(BaseSettings):
     batch_size: int = 256
     no_auto_skip: bool = False
     target_patch_size: int = 224
+    slide_backend: str = "auto"
+    coords_adapter: str = "hdf5"
+    coords_lance_db_path: str | None = None
+    coords_lance_table_name: str = "wsi_patch_coords"
+    feature_output_adapter: str = "hdf5"
+    feature_lance_db_path: str | None = None
+    feature_lance_table_name: str = "wsi_patch_embeddings"
 
 
 if __name__ == "__main__":

@@ -9,22 +9,21 @@ import torch.nn as nn
 import timm
 from torch.utils.data import DataLoader
 from PIL import Image
-import h5py
-import openslide
 from tqdm import tqdm
 
 import numpy as np
 
-from utils.file_utils import save_hdf5
 from dataset_modules.dataset_h5 import Dataset_All_Bags, Whole_Slide_Bag_FP
 from models import get_encoder
+from wsi_core.output_adapters import build_coord_input, build_feature_output
+from wsi_core.slide_io import open_slide
 
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
-def compute_w_loader(output_path, loader, model, verbose = 0):
+def compute_w_loader(slide_id, feature_output, loader, model, verbose = 0):
 	"""
 	args:
-		output_path: directory to save computed features (.h5 file)
+		feature_output: destination adapter for computed features
 		model: pytorch model
 		verbose: level of feedback
 	"""
@@ -40,12 +39,12 @@ def compute_w_loader(output_path, loader, model, verbose = 0):
 			
 			features = model(batch)
 			features = features.cpu().numpy().astype(np.float32)
+			patch_indices = data['patch_idx'].numpy().astype(np.int64)
 
-			asset_dict = {'features': features, 'coords': coords}
-			save_hdf5(output_path, asset_dict, attr_dict= None, mode=mode)
+			feature_output.write_batch(slide_id, features, coords, patch_indices, mode=mode)
 			mode = 'a'
 	
-	return output_path
+	return feature_output.finalize_slide(slide_id)
 
 
 parser = argparse.ArgumentParser(description='Feature Extraction')
@@ -58,6 +57,13 @@ parser.add_argument('--model_name', type=str, default='resnet50_trunc', choices=
 parser.add_argument('--batch_size', type=int, default=256)
 parser.add_argument('--no_auto_skip', default=False, action='store_true')
 parser.add_argument('--target_patch_size', type=int, default=224)
+parser.add_argument('--slide_backend', choices=['auto', 'openslide', 'czi'], default='auto')
+parser.add_argument('--coords_adapter', choices=['hdf5', 'lance'], default='hdf5')
+parser.add_argument('--coords_lance_db_path', type=str, default=None)
+parser.add_argument('--coords_lance_table_name', type=str, default='wsi_patch_coords')
+parser.add_argument('--feature_output_adapter', choices=['hdf5', 'lance'], default='hdf5')
+parser.add_argument('--feature_lance_db_path', type=str, default=None)
+parser.add_argument('--feature_lance_table_name', type=str, default='wsi_patch_embeddings')
 args = parser.parse_args()
 
 
@@ -70,9 +76,19 @@ if __name__ == '__main__':
 	bags_dataset = Dataset_All_Bags(csv_path)
 	
 	os.makedirs(args.feat_dir, exist_ok=True)
-	os.makedirs(os.path.join(args.feat_dir, 'pt_files'), exist_ok=True)
-	os.makedirs(os.path.join(args.feat_dir, 'h5_files'), exist_ok=True)
-	dest_files = os.listdir(os.path.join(args.feat_dir, 'pt_files'))
+	coord_input = build_coord_input(
+		args.coords_adapter,
+		data_h5_dir=args.data_h5_dir,
+		lance_db_path=args.coords_lance_db_path,
+		lance_table_name=args.coords_lance_table_name,
+	)
+	feature_output = build_feature_output(
+		args.feature_output_adapter,
+		args.feat_dir,
+		lance_db_path=args.feature_lance_db_path,
+		lance_table_name=args.feature_lance_table_name,
+		model_name=args.model_name,
+	)
 
 	model, img_transforms = get_encoder(args.model_name, target_img_size=args.target_patch_size)
 			
@@ -84,37 +100,25 @@ if __name__ == '__main__':
 
 	for bag_candidate_idx in tqdm(range(total)):
 		slide_id = bags_dataset[bag_candidate_idx].split(args.slide_ext)[0]
-		bag_name = slide_id+'.h5'
-		h5_file_path = os.path.join(args.data_h5_dir, 'patches', bag_name)
 		slide_file_path = os.path.join(args.data_slide_dir, slide_id+args.slide_ext)
 		print('\nprogress: {}/{}'.format(bag_candidate_idx, total))
 		print(slide_id)
+		coords, coord_attrs = coord_input.load(slide_id)
 
-		if not args.no_auto_skip and slide_id+'.pt' in dest_files:
+		if not args.no_auto_skip and feature_output.exists(slide_id, expected_count=len(coords)):
 			print('skipped {}'.format(slide_id))
 			continue 
 
-		output_path = os.path.join(args.feat_dir, 'h5_files', bag_name)
 		time_start = time.time()
-		wsi = openslide.open_slide(slide_file_path)
-		dataset = Whole_Slide_Bag_FP(file_path=h5_file_path, 
-							   		 wsi=wsi, 
-									 img_transforms=img_transforms)
+		wsi = open_slide(slide_file_path, backend=args.slide_backend)
+		dataset = Whole_Slide_Bag_FP(wsi=wsi,
+									 img_transforms=img_transforms,
+									 coords=coords,
+									 coord_attrs=coord_attrs)
 
 		loader = DataLoader(dataset=dataset, batch_size=args.batch_size, **loader_kwargs)
-		output_file_path = compute_w_loader(output_path, loader = loader, model = model, verbose = 1)
+		output_file_path = compute_w_loader(slide_id, feature_output, loader = loader, model = model, verbose = 1)
 
 		time_elapsed = time.time() - time_start
 		print('\ncomputing features for {} took {} s'.format(output_file_path, time_elapsed))
-
-		with h5py.File(output_file_path, "r") as file:
-			features = file['features'][:]
-			print('features size: ', features.shape)
-			print('coordinates size: ', file['coords'].shape)
-
-		features = torch.from_numpy(features)
-		bag_base, _ = os.path.splitext(bag_name)
-		torch.save(features, os.path.join(args.feat_dir, 'pt_files', bag_base+'.pt'))
-
-
 
