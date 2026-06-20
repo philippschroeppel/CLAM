@@ -23,6 +23,7 @@ class CziOpenSlideLike:
         if not self.czi.is_mosaic():
             raise ValueError("CZI preprocessing currently expects a mosaic CZI file")
 
+        self._owner_pid = os.getpid()
         self.bbox = self.czi.get_mosaic_bounding_box()
         self.level_downsamples = tuple(float(downsample) for downsample in downsamples)
         self.level_dimensions = tuple(
@@ -39,7 +40,18 @@ class CziOpenSlideLike:
         diffs = [abs(level_downsample - downsample) for level_downsample in self.level_downsamples]
         return int(np.argmin(diffs))
 
+    def _ensure_reader_for_current_process(self):
+        # aicspylibczi's reader holds a native file handle that does not
+        # survive fork(); DataLoader worker processes need their own.
+        pid = os.getpid()
+        if pid != self._owner_pid:
+            from aicspylibczi import CziFile
+
+            self.czi = CziFile(self.path)
+            self._owner_pid = pid
+
     def read_region(self, location, level, size):
+        self._ensure_reader_for_current_process()
         x, y = (int(location[0]), int(location[1]))
         out_w, out_h = (int(size[0]), int(size[1]))
         downsample = self.level_downsamples[level]
