@@ -81,7 +81,11 @@ class LanceCoordinateOutput:
                 ("level_height", self._pa.int64()),
             ]
         )
-        return self.db.create_table(self.table_name, schema=schema)
+        try:
+            return self.db.create_table(self.table_name, schema=schema)
+        except ValueError:
+            # lost a race against another process creating the table first
+            return self.db.open_table(self.table_name)
 
     def output_path(self, slide_id):
         return f"{self.db_path}::{self.table_name}/{slide_id}"
@@ -274,7 +278,11 @@ class LanceFeatureOutput:
                 ("model_name", self._pa.string()),
             ]
         )
-        return self.db.create_table(self.table_name, schema=schema)
+        try:
+            return self.db.create_table(self.table_name, schema=schema)
+        except ValueError:
+            # lost a race against another process creating the table first
+            return self.db.open_table(self.table_name)
 
     def output_path(self, slide_id):
         return f"{self.db_path}::{self.table_name}/{slide_id}"
